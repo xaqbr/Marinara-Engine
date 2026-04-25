@@ -2874,7 +2874,8 @@ export async function generateRoutes(app: FastifyInstance) {
             memoryLines.push(`Memory from ${mem.from}: ${mem.summary}`);
           }
 
-          // Permanent scene summaries — never filtered/deleted, capped at 10 most recent
+          // Permanent scene summaries — never filtered/deleted.
+          // Cap at the 10 most recent to prevent unbounded prompt growth.
           const sceneSummaries: Array<{ from: string; summary: string; createdAt: string }> =
             charData.extensions?.sceneSummaries ?? [];
           const recentSceneSummaries = sceneSummaries.slice(-10);
@@ -2918,6 +2919,7 @@ export async function generateRoutes(app: FastifyInstance) {
             // sharing the same characters (for group conversation chats).
             const recallChatIds = [input.chatId];
             if (chatMode === "conversation") {
+              const includeGroupChats = characterIds.length > 1;
               const allChats = await app.db
                 .select({ id: chatsTable.id, characterIds: chatsTable.characterIds, mode: chatsTable.mode, metadata: chatsTable.metadata })
                 .from(chatsTable);
@@ -2925,7 +2927,7 @@ export async function generateRoutes(app: FastifyInstance) {
               for (const c of allChats) {
                 if (c.id === input.chatId) continue;
                 // Include other conversation-mode chats sharing the same characters (group chats)
-                if (c.mode === "conversation" && characterIds.length > 1) {
+                if (includeGroupChats && c.mode === "conversation") {
                   try {
                     const ids: string[] = JSON.parse(c.characterIds);
                     if (ids.some((id) => charSet.has(id))) recallChatIds.push(c.id);

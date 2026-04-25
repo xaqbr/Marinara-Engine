@@ -363,7 +363,7 @@ export async function sceneRoutes(app: FastifyInstance) {
 
     // 3. Chunk and embed the scene chat for semantic memory recall (fire-and-forget)
     chunkAndEmbedMessages(app.db, sceneChatId, { userName: personaName, characterNames: charNameMap }).catch((err) =>
-      logger.error(err, "[scene/conclude] Background chunking of scene chat failed"),
+      logger.error(err, "[scene/conclude] Background chunking of scene chat %s failed", sceneChatId),
     );
 
     // 4. Mark scene as concluded
