@@ -2846,6 +2846,7 @@ export async function generateRoutes(app: FastifyInstance) {
       // ── Inject character memories into awareness ──
       // Characters can create "memories" targeting other characters.
       // These appear in the awareness context and are cleaned up after the day ends.
+      // Scene summaries are stored separately and never expire.
       if (chatMode === "conversation") {
         const memoryLines: string[] = [];
         const today = new Date();
@@ -2855,9 +2856,10 @@ export async function generateRoutes(app: FastifyInstance) {
           const charRow = await chars.getById(cid);
           if (!charRow) continue;
           const charData = JSON.parse(charRow.data as string);
+
+          // Ephemeral same-day memories ([memory] command)
           const memories: Array<{ from: string; fromCharId: string; summary: string; createdAt: string }> =
             charData.extensions?.characterMemories ?? [];
-          if (memories.length === 0) continue;
 
           // Filter: keep only memories from today or later
           const validMemories = memories.filter((m) => new Date(m.createdAt) >= today);
@@ -2870,6 +2872,14 @@ export async function generateRoutes(app: FastifyInstance) {
 
           for (const mem of validMemories) {
             memoryLines.push(`Memory from ${mem.from}: ${mem.summary}`);
+          }
+
+          // Permanent scene summaries — never filtered/deleted, capped at 10 most recent
+          const sceneSummaries: Array<{ from: string; summary: string; createdAt: string }> =
+            charData.extensions?.sceneSummaries ?? [];
+          const recentSceneSummaries = sceneSummaries.slice(-10);
+          for (const mem of recentSceneSummaries) {
+            memoryLines.push(`Scene memory: ${mem.summary}`);
           }
         }
 
@@ -2907,16 +2917,28 @@ export async function generateRoutes(app: FastifyInstance) {
             // Scope recall: current chat only, plus other conversation-mode chats
             // sharing the same characters (for group conversation chats).
             const recallChatIds = [input.chatId];
-            if (chatMode === "conversation" && characterIds.length > 1) {
+            if (chatMode === "conversation") {
               const allChats = await app.db
-                .select({ id: chatsTable.id, characterIds: chatsTable.characterIds, mode: chatsTable.mode })
+                .select({ id: chatsTable.id, characterIds: chatsTable.characterIds, mode: chatsTable.mode, metadata: chatsTable.metadata })
                 .from(chatsTable);
               const charSet = new Set(characterIds);
               for (const c of allChats) {
-                if (c.id === input.chatId || c.mode !== "conversation") continue;
+                if (c.id === input.chatId) continue;
+                // Include other conversation-mode chats sharing the same characters (group chats)
+                if (c.mode === "conversation" && characterIds.length > 1) {
+                  try {
+                    const ids: string[] = JSON.parse(c.characterIds);
+                    if (ids.some((id) => charSet.has(id))) recallChatIds.push(c.id);
+                  } catch {
+                    /* skip */
+                  }
+                }
+                // Include concluded scene chats that originated from this conversation
                 try {
-                  const ids: string[] = JSON.parse(c.characterIds);
-                  if (ids.some((id) => charSet.has(id))) recallChatIds.push(c.id);
+                  const meta = typeof c.metadata === "string" ? JSON.parse(c.metadata) : (c.metadata ?? {});
+                  if (meta.sceneOriginChatId === input.chatId && meta.sceneStatus === "concluded") {
+                    recallChatIds.push(c.id);
+                  }
                 } catch {
                   /* skip */
                 }

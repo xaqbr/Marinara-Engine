@@ -48,6 +48,8 @@ export interface CharacterExtensions {
   rpgStats?: RPGStatsConfig;
   /** Marinara Engine: Conversation-mode availability status */
   conversationStatus?: "online" | "idle" | "dnd" | "offline";
+  /** Marinara Engine: Permanent scene-summary memories (never expired) */
+  sceneSummaries?: Array<{ from: string; summary: string; createdAt: string }>;
   [key: string]: unknown;
 }
 

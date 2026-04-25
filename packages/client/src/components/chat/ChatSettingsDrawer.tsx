@@ -3098,6 +3098,44 @@ export function ChatSettingsDrawer({
             </Section>
           )}
 
+          {/* Scene History — conversation mode only. Lists all concluded scene summaries stored on participating characters. */}
+          {isConversation && (() => {
+            const allSceneSummaries: Array<{ characterName: string; summary: string; createdAt: string }> = [];
+            for (const c of chatCharacters) {
+              const charData = typeof c.data === "string" ? JSON.parse(c.data) : c.data;
+              const summaries: Array<{ from: string; summary: string; createdAt: string }> =
+                charData?.extensions?.sceneSummaries ?? [];
+              const name = charData?.name ?? c.id;
+              for (const s of summaries) {
+                allSceneSummaries.push({ characterName: name, summary: s.summary, createdAt: s.createdAt });
+              }
+            }
+            if (allSceneSummaries.length === 0) return null;
+            allSceneSummaries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            return (
+              <Section
+                label="Scene History"
+                icon={<BookOpen size="0.875rem" />}
+                count={allSceneSummaries.length}
+                help="Permanent scene memories stored on characters in this conversation. These are injected into every generation so characters always remember concluded scenes."
+              >
+                <div className="space-y-2">
+                  {allSceneSummaries.map((s, i) => (
+                    <div key={i} className="rounded-lg bg-[var(--secondary)] px-3 py-2.5 space-y-0.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[0.625rem] font-semibold text-[var(--primary)]">{s.characterName}</span>
+                        <span className="text-[0.5625rem] text-[var(--muted-foreground)] shrink-0">
+                          {new Date(s.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                        </span>
+                      </div>
+                      <p className="text-[0.625rem] text-[var(--foreground)] leading-relaxed whitespace-pre-wrap">{s.summary}</p>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            );
+          })()}
+
           {/* Discord Webhook */}
           <Section
             label="Discord Mirror"

@@ -26,6 +26,7 @@ import type {
   ScenePlanResponse,
   SceneFullPlan,
 } from "@marinara-engine/shared";
+import { chunkAndEmbedMessages } from "../services/memory-recall.js";
 
 const BG_DIR = join(DATA_DIR, "backgrounds");
 const ALLOWED_BG_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"]);
@@ -339,30 +340,36 @@ export async function sceneRoutes(app: FastifyInstance) {
       content: `*${personaName} and ${await getCharacterName(chars, initiatorCharId ?? "")} returned from their scene...*\n\n${summary}`,
     });
 
-    // 2. Store as a permanent memory on each participating character
+    // 2. Store as a permanent scene-summary memory on each participating character
+    const charNameMap: Record<string, string> = {};
     for (const charId of characterIds) {
       const charRow = await chars.getById(charId);
       if (!charRow) continue;
       const charData = typeof charRow.data === "string" ? JSON.parse(charRow.data) : charRow.data;
+      charNameMap[charId] = charData.name ?? charId;
       const extensions = { ...(charData.extensions ?? {}) };
-      const memories: Array<{ from: string; fromCharId: string; summary: string; createdAt: string }> =
-        extensions.characterMemories ?? [];
+      const sceneSummaries: Array<{ from: string; summary: string; createdAt: string }> =
+        extensions.sceneSummaries ?? [];
 
-      memories.push({
+      sceneSummaries.push({
         from: personaName,
-        fromCharId: "scene",
         summary: `[Scene on ${dateStr}] ${summary}`,
         createdAt: now.toISOString(),
       });
 
-      extensions.characterMemories = memories;
+      extensions.sceneSummaries = sceneSummaries;
       await chars.update(charId, { extensions } as any);
     }
 
-    // 3. Mark scene as concluded
+    // 3. Chunk and embed the scene chat for semantic memory recall (fire-and-forget)
+    chunkAndEmbedMessages(app.db, sceneChatId, { userName: personaName, characterNames: charNameMap }).catch((err) =>
+      logger.error(err, "[scene/conclude] Background chunking of scene chat failed"),
+    );
+
+    // 4. Mark scene as concluded
     await chats.updateMetadata(sceneChatId, { ...sceneMeta, sceneStatus: "concluded" });
 
-    // 4. Clean up origin chat metadata — remove scene busy state
+    // 5. Clean up origin chat metadata — remove scene busy state
     const originChat = await chats.getById(originChatId);
     if (originChat) {
       const originMeta =
@@ -372,7 +379,7 @@ export async function sceneRoutes(app: FastifyInstance) {
       await chats.updateMetadata(originChatId, originMeta);
     }
 
-    // 5. Disconnect the chats (scene is over, no longer linked)
+    // 6. Disconnect the chats (scene is over, no longer linked)
     await chats.disconnectChat(sceneChatId);
 
     return {
